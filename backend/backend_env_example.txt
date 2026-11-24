@@ -1,0 +1,8 @@
+PORT=3000
+# for local
+DB_CONNECT=mongodb://127.0.0.1:27017/uber-clone
+# for production
+DB_CONNECT=mongodb+srv://<USERNAME>:<PASSWORD>@uber-cluster.eisgmr6.mongodb.net/uber-clone?retryWrites=true&w=majority
+
+JWT_SECRET= 
+GEOAPIFY_API_KEY=

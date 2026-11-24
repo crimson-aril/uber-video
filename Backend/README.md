@@ -1,481 +1,344 @@
-# Backend API Documentation
+# Uber Video Backend
+
+Express API and Socket.IO server for the Uber Video ride-booking app. It uses
+MongoDB for users, captains, rides, and revoked tokens. The root
+[README](../README.md) covers the full project and local setup.
+
+## Requirements and setup
+
+You need Node.js, pnpm, MongoDB, and a Geoapify API key. From this directory,
+copy the example environment file, fill in its values, install packages, and
+start the development server:
+
+```sh
+cp backend_env_example.txt .env
+pnpm install
+pnpm start
+```
+
+The server listens on port `3000` unless `PORT` is set. `GET /` returns
+`Hello World` and can be used as a basic availability check.
+
+## Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `PORT` | No | HTTP and Socket.IO port; defaults to `3000`. |
+| `DB_CONNECT` | Yes | MongoDB connection URI. |
+| `JWT_SECRET` | Yes | Secret used to sign and verify login tokens. |
+| `GEOAPIFY_API_KEY` | Yes | Key for geocoding and route requests. |
+
+## MongoDB Atlas setup
+
+1. Create a MongoDB Atlas project and database deployment.
+2. Add a database user with read and write access to the `uber-clone` database.
+   This database user is separate from your Atlas account login.
+3. Add the IP addresses that may connect to the cluster in Atlas **Network
+   Access**. For local development, add your current public IP. For Render,
+   open the backend service's **Connect** menu, copy the addresses from its
+   **Outbound** tab, and add those ranges to the Atlas IP access list.
+4. In Atlas, choose **Connect** and then **Drivers** to get the application
+   connection string. Use the `mongodb+srv://` URI and set its database name
+   to `uber-clone`.
+5. Set the resulting URI as `DB_CONNECT` in `backend/.env` for local
+   development, or in the Render backend service's environment settings for a
+   deployed service.
 
-## `/users/register` Endpoint
+It should look like this:
 
-### Description
+```text
+DB_CONNECT=mongodb+srv://<db-user>:<password>@<cluster-host>/uber-clone
+```
 
-Registers a new user by creating a user account with the provided information.
+Replace the placeholders with values from Atlas; keep any query options
+included in its generated URI. URL-encode reserved characters in the database
+username or password before putting them in the URI. Keep the URI private and
+never commit it. Atlas requires both a database user and an allowed IP address
+for connections. See the official [Atlas connection guide][atlas-connect],
+[IP access list guide][atlas-ip-list], and [Render Atlas guide][render-atlas]
+for current dashboard steps.
 
-### HTTP Method
+## Why the backend uses Geoapify
 
-`POST`
+The older tutorial used Google Places for address suggestions. Since it was
+written, Google Maps Platform has added a no-cost [Maps Demo Key][maps-demo-key]
+for testing with limited features and daily quotas. Google also has a newer
+[Places API flow][places-api-docs]. The old integration can fail when its key
+or API setup does not match the current flow.
+Autocomplete itself has not been removed. Production Google Maps use requires
+a standard key and the required API and billing setup.
 
-### Request Body
+This backend uses Geoapify for address suggestions, address-to-coordinate
+lookup, and route distance/time. The ride service uses those route results to
+calculate fare. Set a Geoapify project key as `GEOAPIFY_API_KEY` in this
+backend's `.env`. The Google Maps demo key is not a Geoapify key; the optional
+Google browser map uses `VITE_GOOGLE_MAPS_API_KEY` in the frontend instead.
 
-The request body should be in JSON format and include the following fields:
+Keep the Geoapify key server-side and out of source control. Review
+[Geoapify's API key guidance](https://myprojects.geoapify.com/help/api-keys/)
+when setting restrictions for a deployed server.
 
-- `fullname` (object):
-  - `firstname` (string, required): User's first name (minimum 3 characters).
-  - `lastname` (string, optional): User's last name (minimum 3 characters).
-- `email` (string, required): User's email address (must be a valid email).
-- `password` (string, required): User's password (minimum 6 characters).
+[maps-demo-key]: https://developers.google.com/maps/demo-key
+[places-api-docs]: https://developers.google.com/maps/documentation/places
+[atlas-connect]: https://www.mongodb.com/docs/atlas/driver-connection/
+[atlas-ip-list]: https://www.mongodb.com/docs/atlas/security/ip-access-list/
+[render-atlas]: https://render.com/docs/connect-to-mongodb-atlas
 
-### Example Response
+## Docker
 
-- `user` (object):
-  - `fullname` (object).
-    - `firstname` (string): User's first name (minimum 3 characters).
-    - `lastname` (string): User's last name (minimum 3 characters).   
-  - `email` (string): User's email address (must be a valid email).
-  - `password` (string): User's password (minimum 6 characters).
-- `token` (String): JWT Token
+Run Docker commands from the repository root. Create `backend/.env` first and
+set `JWT_SECRET` and `GEOAPIFY_API_KEY`. Compose supplies the MongoDB URL to
+the container, so it does not use the local `127.0.0.1` URL from the example.
 
-## `/users/login` Endpoint
+Build only the backend image:
 
-### Description
+```sh
+docker compose build backend
+```
 
-Authenticates a user using their email and password, returning a JWT token upon successful login.
+Start MongoDB and the backend, then follow backend logs:
 
-### HTTP Method
+```sh
+docker compose up -d mongo backend
+docker compose logs -f backend
+```
 
-`POST`
+Build the backend image without Compose if needed. The build context is the
+repository root because the app source and Dockerfile are in separate
+directories:
 
-### Endpoint
+```sh
+docker build -f backend/Dockerfile -t uber-video-backend .
+```
 
-`/users/login`
+Stop the backend and database with `docker compose stop backend mongo`.
 
-### Request Body
+## Authentication
 
-The request body should be in JSON format and include the following fields:
+Protected endpoints accept a JWT in either the `token` cookie or an
+`Authorization` header:
 
-- `email` (string, required): User's email address (must be a valid email).
-- `password` (string, required): User's password (minimum 6 characters).
+```http
+Authorization: Bearer <token>
+```
 
-### Example Response
+Tokens expire after 24 hours. Logout clears the cookie and adds the token to
+the blacklist. Validation errors return status `400`; missing or invalid
+authentication returns `401`.
 
-- `user` (object):
-  - `fullname` (object).
-    - `firstname` (string): User's first name (minimum 3 characters).
-    - `lastname` (string): User's last name (minimum 3 characters).   
-  - `email` (string): User's email address (must be a valid email).
-  - `password` (string): User's password (minimum 6 characters).
-- `token` (String): JWT Token
+## HTTP API
 
-## `/users/profile` Endpoint
+All endpoints below are relative to the backend origin, such as
+`http://localhost:3000`.
 
-### Description
+### User accounts
 
-Retrieves the profile information of the currently authenticated user.
+#### Register a user
 
-### HTTP Method
+`POST /users/register`
 
-`GET`
-
-### Authentication
-
-Requires a valid JWT token in the Authorization header:
-`Authorization: Bearer <token>`
-
-### Example Response
-
-- `user` (object):
-  - `fullname` (object).
-    - `firstname` (string): User's first name (minimum 3 characters).
-    - `lastname` (string): User's last name (minimum 3 characters).   
-  - `email` (string): User's email address (must be a valid email).
-
-
-
-## `/users/logout` Endpoint
-
-### Description
-
-Logout the current user and blacklist the token provided in cookie or headers
-
-### HTTP Method
-
-`GET`
-
-### Authentication
-
-Requires a valid JWT token in the Authorization header or cookie:
-
-- `user` (object):
-  - `fullname` (object).
-    - `firstname` (string): User's first name (minimum 3 characters).
-    - `lastname` (string): User's last name (minimum 3 characters).   
-  - `email` (string): User's email address (must be a valid email).
-  - `password` (string): User's password (minimum 6 characters).
-- `token` (String): JWT Token## `/captains/register` Endpoint
-
-### Description
-
-Registers a new captain by creating a captain account with the provided information.
-
-### HTTP Method
-
-`POST`
-
-### Request Body
-
-The request body should be in JSON format and include the following fields:
-
-- `fullname` (object):
-  - `firstname` (string, required): Captain's first name (minimum 3 characters)
-  - `lastname` (string, optional): Captain's last name
-- `email` (string, required): Captain's email address (must be a valid email)
-- `password` (string, required): Captain's password (minimum 6 characters)
-- `vehicle` (object):
-  - `color` (string, required): Vehicle color (minimum 3 characters)
-  - `plate` (string, required): Vehicle plate number (minimum 3 characters)
-  - `capacity` (number, required): Vehicle passenger capacity (minimum 1)
-  - `vehicleType` (string, required): Type of vehicle (must be 'car', 'motorcycle', or 'auto')
-
-### Example Response
-
-
-## `/captains/register` Endpoint
-
-### Description
-
-Registers a new captain by creating a captain account with the provided information.
-
-### HTTP Method
-
-`POST`
-
-### Request Body
-
-The request body should be in JSON format and include the following fields:
-
-- `fullname` (object):
-  - `firstname` (string, required): Captain's first name (minimum 3 characters).
-  - `lastname` (string, optional): Captain's last name (minimum 3 characters).
-- `email` (string, required): Captain's email address (must be a valid email).
-- `password` (string, required): Captain's password (minimum 6 characters).
-- `vehicle` (object):
-  - `color` (string, required): Vehicle color (minimum 3 characters).
-  - `plate` (string, required): Vehicle plate number (minimum 3 characters).
-  - `capacity` (number, required): Vehicle passenger capacity (minimum 1).
-  - `vehicleType` (string, required): Type of vehicle (must be 'car', 'motorcycle', or 'auto').
-
-### Example Response
-
-- `captain` (object):
-  - `fullname` (object).
-    - `firstname` (string): Captain's first name (minimum 3 characters).
-    - `lastname` (string): Captain's last name (minimum 3 characters).   
-  - `email` (string): Captain's email address (must be a valid email).
-  - `password` (string): Captain's password (minimum 6 characters).
-  - `vehicle` (object):
-    - `color` (string): Vehicle color.
-    - `plate` (string): Vehicle plate number.
-    - `capacity` (number): Vehicle passenger capacity.
-    - `vehicleType` (string): Type of vehicle.
-- `token` (String): JWT Token
-
-## `/captains/login` Endpoint
-
-### Description
-
-Authenticates a captain using their email and password, returning a JWT token upon successful login.
-
-### HTTP Method
-
-`POST`
-
-### Endpoint
-
-`/captains/login`
-
-### Request Body
-
-The request body should be in JSON format and include the following fields:
-
-- `email` (string, required): Captain's email address (must be a valid email).
-- `password` (string, required): Captain's password (minimum 6 characters).
-
-### Example Response
-
-- `captain` (object):
-  - `fullname` (object).
-    - `firstname` (string): Captain's first name (minimum 3 characters).
-    - `lastname` (string): Captain's last name (minimum 3 characters).   
-  - `email` (string): Captain's email address (must be a valid email).
-  - `password` (string): Captain's password (minimum 6 characters).
-  - `vehicle` (object):
-    - `color` (string): Vehicle color.
-    - `plate` (string): Vehicle plate number.
-    - `capacity` (number): Vehicle passenger capacity.
-    - `vehicleType` (string): Type of vehicle.
-- `token` (String): JWT Token
-
-## `/captains/profile` Endpoint
-
-### Description
-
-Retrieves the profile information of the currently authenticated captain.
-
-### HTTP Method
-
-`GET`
-
-### Authentication
-
-Requires a valid JWT token in the Authorization header:
-`Authorization: Bearer <token>`
-
-### Example Response
-
-- `captain` (object):
-  - `fullname` (object).
-    - `firstname` (string): Captain's first name (minimum 3 characters).
-    - `lastname` (string): Captain's last name (minimum 3 characters).   
-  - `email` (string): Captain's email address (must be a valid email).
-  - `vehicle` (object):
-    - `color` (string): Vehicle color.
-    - `plate` (string): Vehicle plate number.
-    - `capacity` (number): Vehicle passenger capacity.
-    - `vehicleType` (string): Type of vehicle.
-
-## `/captains/logout` Endpoint
-
-### Description
-
-Logout the current captain and blacklist the token provided in cookie or headers.
-
-### HTTP Method
-
-`GET`
-
-### Authentication
-
-Requires a valid JWT token in the Authorization header or cookie.
-
-### Example Response
-
-- `message` (string): Logout successfully.
-
-
-## `/maps/get-coordinates` Endpoint
-
-### Description
-
-Retrieves the coordinates (latitude and longitude) for a given address.
-
-### HTTP Method
-
-`GET`
-
-### Request Parameters
-
-- `address` (string, required): The address for which to retrieve coordinates.
-
-### Example Request
-
-GET `/maps/get-coordinates?address=1600+Amphitheatre+Parkway,+Mountain+View,+CA`
-
-### Example Response
+JSON body:
 
 ```json
 {
-  "ltd": 37.4224764,
-  "lng": -122.0842499
-}
-```
-
-### Error Response
-
-- `400 Bad Request`: If the address parameter is missing or invalid.
-- `404 Not Found`: If the coordinates for the given address could not be found.
-
-```json
-{
-  "message": "Coordinates not found"
-}
-```
-
-## `/maps/get-distance-time` Endpoint
-
-### Description
-
-Retrieves the distance and estimated travel time between two locations.
-
-### HTTP Method
-
-`GET`
-
-### Request Parameters
-
-- `origin` (string, required): The starting address or location.
-- `destination` (string, required): The destination address or location.
-
-### Example Request
-
-```
-GET /maps/get-distance-time?origin=New+York,NY&destination=Los+Angeles,CA
-```
-
-### Example Response
-
-```json
-{
-  "distance": {
-    "text": "2,789 miles",
-    "value": 4486540
+  "fullname": {
+    "firstname": "Alex",
+    "lastname": "Rider"
   },
-  "duration": {
-    "text": "1 day 18 hours",
-    "value": 154800
+  "email": "alex@example.com",
+  "password": "secret123"
+}
+```
+
+`fullname.firstname` must contain at least three characters. `lastname` is
+optional; if provided, it must contain at least three characters. The email
+must be valid and the password must contain at least six characters. A
+successful request returns status `201` with a token and user object.
+
+#### Sign in as a user
+
+`POST /users/login`
+
+Send `email` and `password` as JSON. A successful request returns status
+`200`, a token, and a user object. Invalid credentials return `401`.
+
+#### Read the user profile
+
+`GET /users/profile` requires authentication and returns the signed-in user.
+
+#### Sign out a user
+
+`GET /users/logout` requires authentication, clears the token cookie, and
+returns `{ "message": "Logged out" }`.
+
+### Captain accounts
+
+#### Register a captain
+
+`POST /captains/register`
+
+Send a JSON body with the same `fullname`, `email`, and `password` fields as
+user registration, plus a vehicle:
+
+```json
+{
+  "fullname": {
+    "firstname": "Casey",
+    "lastname": "Driver"
+  },
+  "email": "casey@example.com",
+  "password": "secret123",
+  "vehicle": {
+    "color": "Black",
+    "plate": "ABC123",
+    "capacity": 4,
+    "vehicleType": "car"
   }
 }
 ```
 
-### Error Response
+`fullname.firstname` must contain at least three characters. `lastname` is
+optional; if provided, it must contain at least three characters. The email
+must be valid and the password must contain at least six characters.
+`vehicle.color` and `vehicle.plate` need at least three characters,
+`capacity` must be at least one, and `vehicleType` must be `car`,
+`motorcycle`, or `auto`. A successful request returns status `201`, a token,
+and a captain object.
 
-- `400 Bad Request`: If the origin or destination parameter is missing or invalid.
-- `404 Not Found`: If the distance and time for the given locations could not be found.
+#### Sign in as a captain
 
-```json
-{
-  "message": "No routes found"
-}
-```
+`POST /captains/login`
 
-## `/maps/get-suggestions` Endpoint
+Send `email` and `password` as JSON. A successful request returns status
+`200`, a token, and a captain object. Invalid credentials return `401`.
 
-### Description
+#### Read the captain profile
 
-Retrieves autocomplete suggestions for a given input string.
+`GET /captains/profile` requires captain authentication and returns the
+captain profile, including vehicle information.
 
-### HTTP Method
+#### Sign out a captain
 
-`GET`
+`GET /captains/logout` requires captain authentication, clears the token
+cookie, and returns `{ "message": "Logout successfully" }`.
 
-### Request Parameters
+### Maps and location search
 
-- `input` (string, required): The input string for which to retrieve suggestions.
+All map endpoints require a user token. Query values should be URL encoded.
 
-### Example Request
+#### Geocode an address
 
-```
-GET /maps/get-suggestions?input=1600+Amphitheatre
-```
+`GET /maps/get-coordinates?address=<address>` returns `ltd`, `lng`, and
+`countryCode` for the first matching address.
 
-### Example Response
+#### Get route distance and time
 
-```json
-[
-  "1600 Amphitheatre Parkway, Mountain View, CA, USA",
-  "1600 Amphitheatre Pkwy, Mountain View, CA 94043, USA"
-]
-```
+`GET /maps/get-distance-time?origin=<origin>&destination=<destination>`
 
-### Error Response
+Returns `distance` and `duration` objects. Each object has a display `text`
+and a numeric `value` in meters or seconds, respectively.
 
-- `400 Bad Request`: If the input parameter is missing or invalid.
-- `500 Internal Server Error`: If there is an error retrieving suggestions.
+#### Find address suggestions
 
-```json
-{
-  "message": "Unable to fetch suggestions"
-}
-```
+`GET /maps/get-suggestions?input=<search-text>` returns an array of formatted
+address strings. Search text must contain at least three characters.
 
-## `/rides/create` Endpoint
+Geoapify failures may return `502` or `503`. A location with no match returns
+`404`.
 
-### Description
+### Rides
 
-Creates a new ride with the provided information.
+Ride endpoints require the user or captain role shown below. Ride vehicle
+types are `auto`, `car`, and `moto`.
 
-### HTTP Method
+#### Estimate a fare
 
-`POST`
+`GET /rides/get-fare?pickup=<address>&destination=<address>` requires a user
+token. It returns fare amounts for `auto`, `car`, and `moto`, plus a
+`currency` object containing its code and symbol.
 
-### Authentication
+#### Request a ride
 
-Requires a valid JWT token in the Authorization header:
-`Authorization: Bearer <token>`
-
-### Request Body
-
-The request body should be in JSON format and include the following fields:
-
-- `pickup` (string, required): The pickup address (minimum 3 characters).
-- `destination` (string, required): The destination address (minimum 3 characters).
-- `vehicleType` (string, required): The type of vehicle (must be 'auto', 'car', or 'moto').
-
-### Example Response
-
-- `ride` (object):
-  - `user` (string): User ID.
-  - `pickup` (string): Pickup address.
-  - `destination` (string): Destination address.
-  - `fare` (number): Fare amount.
-  - `status` (string): Ride status.
-  - `duration` (number): Duration in seconds.
-  - `distance` (number): Distance in meters.
-  - `otp` (string): OTP for the ride.
-
-### Error Response
-
-- `400 Bad Request`: If any required field is missing or invalid.
-- `500 Internal Server Error`: If there is an error creating the ride.
+`POST /rides/create` requires a user token. Send this JSON body:
 
 ```json
 {
-  "message": "Error message"
+  "pickup": "Central Station",
+  "destination": "City Hospital",
+  "vehicleType": "car"
 }
 ```
 
+The addresses need at least three characters. The response contains the new
+ride and a `notifiedCaptains` count. Nearby connected captains receive a
+`new-ride` socket event.
 
-## `/rides/get-fare` Endpoint
+#### Cancel a pending ride
 
-### Description
+`POST /rides/cancel` requires a user token. Send `{ "rideId": "<ride-id>" }`
+as JSON. Only the owner can cancel a ride while its status is `pending`.
 
-Retrieves the fare estimate for a ride between the provided pickup and destination addresses.
+#### Accept a ride
 
-### HTTP Method
+`POST /rides/confirm` requires captain authentication. Send
+`{ "rideId": "<ride-id>" }` as JSON. The ride must still be pending.
 
-`GET`
+#### Start a ride
 
-### Authentication
+`GET /rides/start-ride?rideId=<ride-id>&otp=<six-digit-otp>` requires captain
+authentication. Only the captain assigned to the ride can start it, and the
+OTP must match.
 
-Requires a valid JWT token in the Authorization header:
-`Authorization:
+#### Finish a ride
 
- Bear
+`POST /rides/end-ride` requires captain authentication. Send
+`{ "rideId": "<ride-id>" }` as JSON. The ride must be ongoing; completing it
+updates the captain's earnings.
 
-er <token>`
+Ride status progresses through `pending`, `accepted`, `ongoing`, and
+`completed`. A pending ride can also become `cancelled`. Invalid state
+transitions may return `409`.
 
-### Request Parameters
+## Socket.IO events
 
-- `pickup` (string, required): The pickup address (minimum 3 characters).
-- `destination` (string, required): The destination address (minimum 3 characters).
+The frontend connects to the same origin as the API. After connecting, a
+client registers its account room with `join`:
 
-### Example Request
-
+```js
+socket.emit("join", {
+  userType: "user",
+  userId: "<account-id>",
+});
 ```
-GET /rides/get-fare?pickup=1600+Amphitheatre+Parkway,+Mountain+View,+CA&destination=1+Infinite+Loop,+Cupertino,+CA
+
+Use `userType: "captain"` for a captain. The optional acknowledgement returns
+`{ "ok": true }` when registration succeeds.
+
+Captains send location updates with `update-location-captain`:
+
+```js
+socket.emit("update-location-captain", {
+  userId: "<captain-id>",
+  location: { "ltd": 23.78, "lng": 90.41 },
+});
 ```
 
-### Example Response
+The server emits these ride events:
 
-```json
-{
-  "auto": 50.0,
-  "car": 75.0,
-  "moto": 40.0
-}
-```
+- `new-ride` to nearby connected captains when a user requests a ride.
+- `ride-cancelled` to connected captains when a user cancels a ride.
+- `ride-confirmed` to the user when a captain accepts the request.
+- `ride-started` to the user when the captain starts the ride.
+- `ride-ended` to the user when the captain completes the ride.
 
-### Error Response
+Each event carries the relevant ride object, except `ride-cancelled`, which
+carries a `rideId` object.
 
-- `400 Bad Request`: If any required parameter is missing or invalid.
-- `500 Internal Server Error`: If there is an error calculating the fare.
+## Source layout
 
-```json
-{
-  "message": "Error message"
-}
-```
+- `routes/` defines the HTTP endpoints and validation rules.
+- `controllers/` handles HTTP requests and responses.
+- `services/` contains account, maps, and ride operations.
+- `models/` defines the Mongoose schemas.
+- `middlewares/` contains authentication checks.
+- `socket.js` initializes Socket.IO and room messaging.

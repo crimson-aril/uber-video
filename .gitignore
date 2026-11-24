@@ -1,4 +1,6 @@
 .env
+frontend/.env
+backend/.env
 
 # Logs
 logs
@@ -10,8 +12,6 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
-dist-ssr
 *.local
 
 # Editor directories and files
@@ -24,3 +24,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# database password
+backend/database_password.txt
+
+# Local credentials and generated build output
+**/.env
+**/.env.*
+!**/.env.example
+**/database_password.txt
+
+# google api key
+frontend/VITE_GOOGLE_MAPS_API_KEY.txt

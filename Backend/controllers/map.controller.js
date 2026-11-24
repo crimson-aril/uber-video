@@ -1,61 +1,57 @@
-const mapService = require('../services/maps.service');
-const { validationResult } = require('express-validator');
+import * as mapService from "../services/maps.service.js";
+import { validationResult } from "express-validator";
 
+const sendMapError = (res, error) => {
+  console.error("Map Error Details:", error.response?.data || error);
+  const statusCode = error.statusCode || 500;
+  const message =
+    statusCode >= 500 ? "Map provider request failed" : error.message;
+  return res.status(statusCode).json({ message });
+};
 
-module.exports.getCoordinates = async (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-    }
+export const getCoordinates = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
 
+  try {
+    const coordinates = await mapService.getAddressCoordinate(
+      req.query.address,
+    );
+    return res.status(200).json(coordinates);
+  } catch (error) {
+    return sendMapError(res, error);
+  }
+};
 
-    const { address } = req.query;
+export const getDistanceTime = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
 
-    try {
-        const coordinates = await mapService.getAddressCoordinate(address);
-        res.status(200).json(coordinates);
-    } catch (error) {
-        res.status(404).json({ message: 'Coordinates not found' });
-    }
-}
+  try {
+    const { origin, destination } = req.query;
+    const distanceTime = await mapService.getDistanceTime(origin, destination);
+    return res.status(200).json(distanceTime);
+  } catch (error) {
+    return sendMapError(res, error);
+  }
+};
 
-module.exports.getDistanceTime = async (req, res, next) => {
+export const getAutoCompleteSuggestions = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
 
-    try {
-
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({ errors: errors.array() });
-        }
-
-        const { origin, destination } = req.query;
-
-        const distanceTime = await mapService.getDistanceTime(origin, destination);
-
-        res.status(200).json(distanceTime);
-
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Internal server error' });
-    }
-}
-
-module.exports.getAutoCompleteSuggestions = async (req, res, next) => {
-
-    try {
-
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({ errors: errors.array() });
-        }
-
-        const { input } = req.query;
-
-        const suggestions = await mapService.getAutoCompleteSuggestions(input);
-
-        res.status(200).json(suggestions);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Internal server error' });
-    }
-}
+  try {
+    const suggestions = await mapService.getAutoCompleteSuggestions(
+      req.query.input,
+    );
+    return res.status(200).json(suggestions);
+  } catch (error) {
+    return sendMapError(res, error);
+  }
+};

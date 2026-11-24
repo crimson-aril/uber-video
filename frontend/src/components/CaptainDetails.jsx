@@ -1,43 +1,85 @@
-
-import React, { useContext } from 'react'
-import { CaptainDataContext } from '../context/CapatainContext'
+import { use } from "react";
+import {
+    RiCarLine,
+    RiCheckboxCircleLine,
+    RiGroupLine,
+} from "@remixicon/react";
+import { CaptainDataContext } from "../context/CaptainDataContext";
+import Avatar from "./Avatar";
 
 const CaptainDetails = () => {
-
-    const { captain } = useContext(CaptainDataContext)
+    const { captain } = use(CaptainDataContext);
+    const currencySymbol = captain?.currencySymbol || "";
+    const vehicleType = captain?.vehicle?.vehicleType || "—";
+    const formattedVehicleType =
+        vehicleType === "—"
+            ? vehicleType
+            : vehicleType.charAt(0).toUpperCase() + vehicleType.slice(1);
+    const capacity = Number(captain?.vehicle?.capacity);
+    const capacityLabel = Number.isFinite(capacity) && capacity > 0
+        ? `${capacity} seat${capacity === 1 ? "" : "s"}`
+        : "—";
+    const status = captain?.status || "unknown";
+    const formattedStatus = status.charAt(0).toUpperCase() + status.slice(1);
+    const fullName = `${captain?.fullname?.firstname || ""} ${captain?.fullname?.lastname || ""}`.trim();
 
     return (
-        <div>
-            <div className='flex items-center justify-between'>
-                <div className='flex items-center justify-start gap-3'>
-                    <img className='h-10 w-10 rounded-full object-cover' src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRdlMd7stpWUCmjpfRjUsQ72xSWikidbgaI1w&s" alt="" />
-                    <h4 className='text-lg font-medium capitalize'>{captain.fullname.firstname + " " + captain.fullname.lastname}</h4>
+        <section className="captain-profile-card" aria-label="Captain summary">
+            <header className="captain-profile-header">
+                <div className="captain-profile-identity">
+                    <Avatar
+                        seed={captain?._id || fullName || "captain"}
+                        size="md"
+                    />
+                    <div className="captain-profile-name-wrap">
+                        <p className="captain-profile-eyebrow">Captain</p>
+                        <h3 className="captain-profile-name">
+                            {fullName || "Your profile"}
+                        </h3>
+                    </div>
                 </div>
-                <div>
-                    <h4 className='text-xl font-semibold'>₹295.20</h4>
-                    <p className='text-sm text-gray-600'>Earned</p>
+                <div className="captain-profile-earnings">
+                    <span>Earned</span>
+                    <strong>
+                        {currencySymbol}
+                        {(captain?.earnings || 0).toFixed(2)}
+                    </strong>
+                </div>
+            </header>
+
+            <div className="captain-stats">
+                <div className="captain-stat">
+                    <div className="captain-stat-label">
+                        <RiCarLine size={17} aria-hidden="true" />
+                        <span>Vehicle</span>
+                    </div>
+                    <strong className="captain-stat-value">
+                        {formattedVehicleType}
+                    </strong>
+                </div>
+                <div className="captain-stat">
+                    <div className="captain-stat-label">
+                        <RiGroupLine size={17} aria-hidden="true" />
+                        <span>Capacity</span>
+                    </div>
+                    <strong className="captain-stat-value">
+                        {capacityLabel}
+                    </strong>
+                </div>
+                <div className="captain-stat">
+                    <div className="captain-stat-label">
+                        <RiCheckboxCircleLine size={17} aria-hidden="true" />
+                        <span>Status</span>
+                    </div>
+                    <strong
+                        className={`captain-stat-value captain-status captain-status-${status}`}
+                    >
+                        {formattedStatus}
+                    </strong>
                 </div>
             </div>
-            <div className='flex p-3 mt-8 bg-gray-100 rounded-xl justify-center gap-5 items-start'>
-                <div className='text-center'>
-                    <i className="text-3xl mb-2 font-thin ri-timer-2-line"></i>
-                    <h5 className='text-lg font-medium'>10.2</h5>
-                    <p className='text-sm text-gray-600'>Hours Online</p>
-                </div>
-                <div className='text-center'>
-                    <i className="text-3xl mb-2 font-thin ri-speed-up-line"></i>
-                    <h5 className='text-lg font-medium'>10.2</h5>
-                    <p className='text-sm text-gray-600'>Hours Online</p>
-                </div>
-                <div className='text-center'>
-                    <i className="text-3xl mb-2 font-thin ri-booklet-line"></i>
-                    <h5 className='text-lg font-medium'>10.2</h5>
-                    <p className='text-sm text-gray-600'>Hours Online</p>
-                </div>
+        </section>
+    );
+};
 
-            </div>
-        </div>
-    )
-}
-
-export default CaptainDetails
+export default CaptainDetails;

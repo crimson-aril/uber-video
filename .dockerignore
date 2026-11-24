@@ -1,0 +1,13 @@
+.git
+.github
+.agents
+.aws
+.codex
+
+**/.git
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/database_password.txt
+*.local
